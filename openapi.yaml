@@ -10,6 +10,27 @@ servers:
   - url: https://todo-api-example.fly.dev
 
 paths:
+  /login:
+    post:
+      summary: Log in and get a JWT token
+      security:
+        - BasicAuth: []
+      responses:
+        '200':
+          description: JWT token returned on success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/LoginResponse'
+        '401':
+          description: Invalid credentials
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '500':
+          $ref: '#/components/responses/ServerError'
+
   /projects:
     get:
       summary: List all projects
@@ -141,7 +162,7 @@ paths:
                   $ref: '#/components/schemas/Todo'
         '500':
           $ref: '#/components/responses/ServerError'
-  
+
   /todos/{todoId}:
     get:
       summary: Get a specific todo
@@ -195,6 +216,10 @@ components:
       type: apiKey
       in: header
       name: Authorization
+
+    BasicAuth:
+      type: http
+      scheme: basic
 
   parameters:
     ProjectId:
@@ -278,3 +303,10 @@ components:
         error:
           type: string
           example: Internal server error
+
+    LoginResponse:
+      type: object
+      properties:
+        token:
+          type: string
+          example: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...

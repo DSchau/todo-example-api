@@ -1,3 +1,5 @@
+import { SignJWT } from "jose";
+
 type Project = {
   id: string;
   name: string;
@@ -14,6 +16,12 @@ type Todo = {
 };
 
 type RequestBody = Record<string, unknown> | null;
+
+type HandlerArgs = {
+  req: Request;
+  body: RequestBody;
+  params: string[];
+};
 
 const projects = new Map<string, Project>();
 const todos = new Map<string, Todo>();
@@ -55,6 +63,8 @@ function matchRoute(path: string, method: string) {
     { method: "GET", path: /^\/todos\/([^\/]+)$/, handler: getTodo },
     { method: "PUT", path: /^\/todos\/([^\/]+)$/, handler: updateTodo },
     { method: "DELETE", path: /^\/todos\/([^\/]+)$/, handler: deleteTodo },
+
+    { method: "POST", path: /^\/login$/, handler: login },
   ];
 
   for (const route of routes) {
@@ -77,11 +87,8 @@ async function handler(req: Request): Promise<Response> {
   if (!match) return notFound();
 
   const body = req.method === "POST" || req.method === "PUT" ? await parseBody(req) : null;
-  let params = match.params
-  if (params.length === 0) {
-    params[0] = ''
-  }
-  return (match.handler as any)(...match.params, body);
+  const params = match.params;
+  return match.handler({ req, body, params });
 }
 
 // ==== Handlers ====
@@ -90,7 +97,7 @@ function listProjects(): Response {
   return json(Array.from(projects.values()));
 }
 
-function createProject(_: string, body: RequestBody): Response {
+function createProject({ body }: HandlerArgs): Response {
   const name = String(body?.name ?? "").trim();
   if (!name) return new Response("Missing project name", { status: 400 });
 
@@ -101,12 +108,14 @@ function createProject(_: string, body: RequestBody): Response {
   return json(project, 201);
 }
 
-function getProject(projectId: string): Response {
+function getProject({ params }: HandlerArgs): Response {
+  const [projectId] = params;
   const project = projects.get(projectId);
   return project ? json(project) : notFound();
 }
 
-function updateProject(projectId: string, body: RequestBody): Response {
+function updateProject({ params, body }: HandlerArgs): Response {
+  const [projectId] = params;
   if (!projects.has(projectId)) return notFound();
 
   const name = String(body?.name ?? "").trim();
@@ -118,12 +127,14 @@ function updateProject(projectId: string, body: RequestBody): Response {
   return json(updated);
 }
 
-function deleteProject(projectId: string): Response {
+function deleteProject({ params }: HandlerArgs): Response {
+  const [projectId] = params;
   if (!projects.delete(projectId)) return notFound();
   return new Response(null, { status: 204 });
 }
 
-function listTodos(projectId: string): Response {
+function listTodos({ params }: HandlerArgs): Response {
+  const [projectId] = params;
   if (!projects.has(projectId)) return notFound();
   const result = Array.from(todos.values()).filter(todo => todo.projectId === projectId);
   return json(result);
@@ -133,8 +144,10 @@ function listAllTodos(): Response {
   return json(Array.from(todos.values()));
 }
 
-function createTodo(projectId: string, body: RequestBody): Response {
+function createTodo({ params, body }: HandlerArgs): Response {
+  const [projectId] = params;
   if (!projects.has(projectId)) return notFound();
+
   const title = String(body?.title ?? "").trim();
   if (!title) return new Response("Missing todo title", { status: 400 });
 
@@ -152,12 +165,14 @@ function createTodo(projectId: string, body: RequestBody): Response {
   return json(todo, 201);
 }
 
-function getTodo(todoId: string): Response {
+function getTodo({ params }: HandlerArgs): Response {
+  const [todoId] = params;
   const todo = todos.get(todoId);
   return todo ? json(todo) : notFound();
 }
 
-function updateTodo(todoId: string, body: RequestBody): Response {
+function updateTodo({ params, body }: HandlerArgs): Response {
+  const [todoId] = params;
   if (!todos.has(todoId)) return notFound();
   const todo = todos.get(todoId)!;
 
@@ -172,9 +187,38 @@ function updateTodo(todoId: string, body: RequestBody): Response {
   return json(updated);
 }
 
-function deleteTodo(todoId: string): Response {
+function deleteTodo({ params }: HandlerArgs): Response {
+  const [todoId] = params;
   if (!todos.delete(todoId)) return notFound();
   return new Response(null, { status: 204 });
+}
+
+const JWT_SECRET = new TextEncoder().encode("hunter2"); // 🔐 replace in prod
+
+async function login({ req }: HandlerArgs): Promise<Response> {
+  const authHeader = req.headers.get("authorization");
+
+  console.log(authHeader)
+
+  if (!authHeader || !authHeader.startsWith("Basic ")) {
+    return json({ error: "Missing Authorization header" }, 401);
+  }
+
+  const base64 = authHeader.slice("Basic ".length);
+  const decoded = atob(base64);
+  const [username, password] = decoded.split(":");
+
+  if (username !== "admin" || password !== "password") {
+    return json({ error: "Invalid credentials" }, 401);
+  }
+
+  const jwt = await new SignJWT({ sub: username, role: "user" })
+    .setProtectedHeader({ alg: "HS256" })
+    .setIssuedAt()
+    .setExpirationTime("1h")
+    .sign(JWT_SECRET);
+
+  return json({ token: jwt });
 }
 
 // ==== Start Server ====
