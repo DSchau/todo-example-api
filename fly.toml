@@ -1,0 +1,20 @@
+# fly.toml app configuration file generated for todo-api-example on 2025-05-05T20:45:31-07:00
+#
+# See https://fly.io/docs/reference/configuration/ for information about how to use this file.
+#
+
+app = 'todo-api-example'
+primary_region = "sjc"
+
+[build]
+dockerfile = "Dockerfile"
+
+[env]
+PORT = "3000"
+
+[http_service]
+internal_port = 3000
+force_https = true
+auto_stop_machines = false
+auto_start_machines = true
+min_machines_running = 1
