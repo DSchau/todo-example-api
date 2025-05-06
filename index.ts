@@ -194,6 +194,8 @@ function deleteTodo({ params }: HandlerArgs): Response {
 }
 
 const JWT_SECRET = new TextEncoder().encode("hunter2"); // 🔐 replace in prod
+const USERNAME = 'admin';
+const PASSWORD = 'hunter2'; // 🔐 replace in prod
 
 async function login({ req }: HandlerArgs): Promise<Response> {
   const authHeader = req.headers.get("authorization");
@@ -208,7 +210,7 @@ async function login({ req }: HandlerArgs): Promise<Response> {
   const decoded = atob(base64);
   const [username, password] = decoded.split(":");
 
-  if (username !== "admin" || password !== "password") {
+  if (username !== USERNAME || password !== PASSWORD) {
     return json({ error: "Invalid credentials" }, 401);
   }
 
