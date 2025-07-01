@@ -23,11 +23,19 @@ type HandlerArgs = {
   params: string[];
 };
 
+type Route = {
+  method: 'GET' | 'POST' | 'DELETE' | 'PUT';
+  path: RegExp;
+  handler: (handleArgs: HandlerArgs) => any;
+  name?: string;
+}
+
 const projects = new Map<string, Project>();
 const todos = new Map<string, Todo>();
 
 let projectCounter = 1;
 let todoCounter = 1;
+let validJwts = new Map<string, number>();
 
 function json(res: unknown, status = 200): Response {
   return new Response(JSON.stringify(res), {
@@ -48,8 +56,11 @@ async function parseBody(req: Request): Promise<RequestBody> {
   }
 }
 
-function matchRoute(path: string, method: string) {
-  const routes = [
+function matchRoute(path: string, method: string): any {
+  const routes: Route[] = [
+    { method: "GET", path: /\/$/, handler: () => {
+      return json({})
+    }},
     { method: "GET", path: /^\/projects$/, handler: listProjects },
     { method: "POST", path: /^\/projects$/, handler: createProject },
     { method: "GET", path: /^\/projects\/([^\/]+)$/, handler: getProject },
@@ -64,7 +75,7 @@ function matchRoute(path: string, method: string) {
     { method: "PUT", path: /^\/todos\/([^\/]+)$/, handler: updateTodo },
     { method: "DELETE", path: /^\/todos\/([^\/]+)$/, handler: deleteTodo },
 
-    { method: "POST", path: /^\/login$/, handler: login },
+    { method: "POST", path: /^\/login$/, name: 'login', handler: login },
   ];
 
   for (const route of routes) {
@@ -72,6 +83,7 @@ function matchRoute(path: string, method: string) {
     if (match && method === route.method) {
       return {
         handler: route.handler,
+        name: route.name,
         params: match.slice(1),
       };
     }
@@ -80,11 +92,40 @@ function matchRoute(path: string, method: string) {
   return null;
 }
 
+async function authHandler(req: Request): Promise<Response> {
+  const authHeader = req.headers.get("authorization");
+
+  if (!authHeader || !authHeader.startsWith("Bearer ")) {
+    return json({ error: "Missing Authorization header" }, 401);
+  }
+
+  const token = authHeader.slice("Bearer ".length);
+  const expMs = validJwts.get(token);
+  const now = Date.now();
+
+  if (!expMs || expMs < now) {
+    return json({ error: "Invalid token" }, 401);
+  }
+
+  return json({
+    message: 'Token is valid'
+  }, 200);
+}
+
 async function handler(req: Request): Promise<Response> {
   const url = new URL(req.url);
   const match = matchRoute(url.pathname, req.method);
 
   if (!match) return notFound();
+
+
+  console.log({
+    match
+  })
+  if (match.name !== 'login') {
+    const auth = await authHandler(req);
+    if (auth.status !== 200) return auth;
+  }
 
   const body = req.method === "POST" || req.method === "PUT" ? await parseBody(req) : null;
   const params = match.params;
@@ -200,8 +241,6 @@ const PASSWORD = 'hunter2'; // 🔐 replace in prod
 async function login({ req }: HandlerArgs): Promise<Response> {
   const authHeader = req.headers.get("authorization");
 
-  console.log(authHeader)
-
   if (!authHeader || !authHeader.startsWith("Basic ")) {
     return json({ error: "Missing Authorization header" }, 401);
   }
@@ -214,20 +253,25 @@ async function login({ req }: HandlerArgs): Promise<Response> {
     return json({ error: "Invalid credentials" }, 401);
   }
 
+  const now = Math.floor(Date.now() / 1000);
+  const exp = now + 60 * 60; // 1 hour in seconds
   const jwt = await new SignJWT({ sub: username, role: "user" })
     .setProtectedHeader({ alg: "HS256" })
-    .setIssuedAt()
-    .setExpirationTime("1h")
+    .setIssuedAt(now)
+    .setExpirationTime(exp)
     .sign(JWT_SECRET);
+  const expMs = exp * 1000;
 
-  return json({ token: jwt });
+  validJwts.set(jwt, expMs);
+
+  return json({ token: jwt, expMs });
 }
-
+const PORT = 3000
 // ==== Start Server ====
 
 Bun.serve({
-  port: 3000,
+  port: PORT,
   fetch: handler,
 });
 
-console.log("🚀 Bun API server running at http://localhost:3000");
+console.log(`🚀 Bun API server running at http://localhost:${PORT}`);
